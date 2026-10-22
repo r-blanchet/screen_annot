@@ -20,7 +20,9 @@ struct Cli {
     /// Path to biodata bed files per condition (cond1:path1,cond2,path2,...) 
     #[arg(short = 'b', long = "biodata",value_delimiter = ',', num_args = 1.., value_parser = parse_key_val::<String, PathBuf>)]
     biodata: Option<Vec<(String,PathBuf)>>,
-
+    /// Output vcf
+    #[arg(short = 'b', long = "biodata",default_value= "screen_annotated.vcf.gz")]
+    outfile: PathBuf,
 }
 
 fn parse_key_val<T, U>(s: &str) -> Result<(T, U), Box<dyn Error + Send + Sync + 'static>>
@@ -189,7 +191,7 @@ fn main() {
     out_header.push_record(b"##INFO=<ID=ScreenElements, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
     out_header.push_record(b"##INFO=<ID=ScreenGenes, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
     out_header.push_record(b"##INFO=<ID=ScreenBiodata, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
-    let mut outvcf=bcf_Writer::from_path("/Users/u1087/Documents/Analyses/screen_annot/out.test.vcf.gz", &out_header, false,rust_htslib::bcf::Format::Vcf ).expect("Could not open file.");
+    let mut outvcf=bcf_Writer::from_path(args.outfile, &out_header, false,rust_htslib::bcf::Format::Vcf ).expect("Could not open file.");
 
 
     
