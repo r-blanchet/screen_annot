@@ -97,7 +97,9 @@ fn fetch_genes(contig:u64, start:u64, end:u64, ccre_name: &str, ccre_to_gene_fil
 fn fetch_zscores(contig:u64, start:u64, end:u64, ccre_id:&str, zscore_threshold:f32, zscore_files:&mut Vec<(String,tbx_Reader)>) -> Vec<String>{
     let mut cell_types:Vec<String>=Vec::new();
     for (condition,zscores) in zscore_files{
-        zscores.fetch(contig,start,end).expect("cCould not fetch region.");
+        println!("{:?}", condition);
+        zscores.fetch(contig,start,end).expect("Could not fetch region.");
+
         let raw_header_zscore=zscores.header()
             .clone()[0]
             .to_string();
@@ -150,7 +152,7 @@ fn annot_var(variant_record: &mut rust_htslib::bcf::record::Record, mut ccres_be
     }
     let unique_ccre_ids:&Vec<String>=&ccre_details.iter().map(|r| r[1].clone()).collect();
     let unique_ccre_ids:HashSet<&String>=HashSet::from_iter(unique_ccre_ids.iter());
-    println!("{:?}", unique_ccre_ids);
+
     for ccre_id in &unique_ccre_ids{
         let biodata_scores=fetch_zscores(contig,start,end,ccre_id,zscore_threshold,&mut zscores);
         for biodata in biodata_scores {
