@@ -26,7 +26,7 @@ struct Cli {
     outfile: PathBuf,
     /// gene annotation files in tsv format (First column should hold the gene name information)
     #[arg(short = 'g', long = "gene_link",value_delimiter = ',', num_args = 1..)]
-    gene_annot_files: Vec<PathBuf>,
+    gene_annot_files: Option<Vec<PathBuf>>,
 }
 
 fn parse_key_val<T, U, O>(s: &str) -> Result<(T, U, O), Box<dyn Error + Send + Sync + 'static>>
@@ -195,7 +195,6 @@ fn annot_var(variant_record: &mut rust_htslib::bcf::record::Record, mut ccres_be
 }
 
 
-
 fn main() {
     let args=Cli::parse();
     println!("{:?}", args);
@@ -212,12 +211,15 @@ fn main() {
         .iter()
         .map(|path| tbx_Reader::from_path(path).expect("File not found"))
         .collect();
-    let mut gene_annot_files:Vec<csv_Reader<File>>= args.gene_annot_files
-        .iter().map(|f| csv::ReaderBuilder::new()
-            .has_headers(true)
-            .delimiter(b'\t')
-            .from_path(f).expect("File not found"))
-        .collect();
+    let mut gene_annot_files:Vec<csv_Reader<File>>= match args.gene_annot_files{
+        Some(v) => v.iter().map(|f| csv::ReaderBuilder::new()
+                .has_headers(true)
+                .delimiter(b'\t')
+                .from_path(f).expect("File not found"))
+            .collect(),
+        None => Vec::new()
+    };
+        
 
     let mut out_header=rust_htslib::bcf::Header::from_template(invcf.header());
     out_header.push_record(b"##INFO=<ID=ScreenElements, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
