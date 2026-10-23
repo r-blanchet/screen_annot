@@ -25,7 +25,7 @@ struct Cli {
     #[arg(short = 'b', long = "biodata",default_value= "screen_annotated.vcf.gz")]
     outfile: PathBuf,
     /// gene annotation files in tsv format (First column should hold the gene name information)
-    #[arg(short = 'g', long = "gene_link",value_delimiter = ',', num_args = 1..)]
+    #[arg(short = 'a', long = "gene_annot",value_delimiter = ',', num_args = 1..)]
     gene_annot_files: Option<Vec<PathBuf>>,
 }
 
