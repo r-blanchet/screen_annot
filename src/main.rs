@@ -1,4 +1,4 @@
-use rust_htslib::bcf::{Reader as bcf_Reader, Read as bcf_Read, Writer as bcf_Writer};
+use rust_htslib::bcf::{Reader as bcf_Reader, Read as bcf_Read, Writer as bcf_Writer, header::HeaderView};
 use rust_htslib::tbx::{Reader as tbx_Reader, Read as tbx_Read};
 use csv::{Reader as csv_Reader, Position};
 use std::collections::HashSet;
@@ -67,9 +67,13 @@ fn gene_annot(gene_name: &str, gene_annot: &mut csv_Reader<File>) -> Vec<String>
     vec![String::new()]
 }
 
-fn fetch_ccres(contig: &u64, start: &u64, end: &u64, ccres_bed:&mut tbx_Reader ) -> Vec<[String;3]> {
+fn fetch_ccres(contig: &str, start: &u64, end: &u64, ccres_bed:&mut tbx_Reader ) -> Vec<[String;3]> {
     // Retrieves ccreID of elements overlapping variant in ccres_bed if any
-    ccres_bed.fetch(*contig,*start,*end).expect("Could not fecth region");
+    let contig=match ccres_bed.tid(contig) {
+        Ok(contig) => contig,
+        Err(_) => {println!("[warning] Could not resolve {} to contig ID in ccre file",contig); continue},
+    };
+    ccres_bed.fetch(contig,*start,*end).expect("Could not fecth region");
     let mut ccre_list:Vec<[String;3]>= Vec::new();
     for rec in ccres_bed.records(){
         let record= rec.expect("could not parse record");
@@ -99,10 +103,14 @@ fn fetch_ccres(contig: &u64, start: &u64, end: &u64, ccres_bed:&mut tbx_Reader )
 
 }
 
-fn fetch_genes(contig:u64, start:u64, end:u64, ccre_name: &str, ccre_to_gene_files: &mut Vec<tbx_Reader> )-> Vec<String>{
+fn fetch_genes(contig:&str, start:u64, end:u64, ccre_name: &str, ccre_to_gene_files: &mut Vec<tbx_Reader> )-> Vec<String>{
     // Get the genes linked to the ccre
     let mut gene_list:Vec<String>=Vec::new();
     for ccre_to_gene in ccre_to_gene_files {
+        let contig=match ccre_to_gene.tid(contig) {
+            Ok(contig) => contig,
+            Err(_) => {println!("[warning] Could not resolve {} to contig ID in ccre to gene file",contig); continue},
+        };
         ccre_to_gene.fetch(contig,start,end).expect("cCould not fetch region.");
         
         for rec in ccre_to_gene.records(){
@@ -123,9 +131,13 @@ fn fetch_genes(contig:u64, start:u64, end:u64, ccre_name: &str, ccre_to_gene_fil
     gene_list
 }
 
-fn fetch_zscores(contig:u64, start:u64, end:u64, ccre_id:&str, zscore_files:&mut Vec<(String,tbx_Reader,f32)>) -> Vec<String>{
+fn fetch_zscores(contig:&str, start:u64, end:u64, ccre_id:&str, zscore_files:&mut Vec<(String,tbx_Reader,f32)>) -> Vec<String>{
     let mut cell_types:Vec<String>=Vec::new();
     for (condition,zscores,zscore_threshold) in zscore_files{
+        let contig=match zscores.tid(contig) {
+            Ok(contig) => contig,
+            Err(_) => {println!("[warning] Could not resolve {} to contig ID in biodata file",contig); continue},
+        };
         zscores.fetch(contig,start,end).expect("Could not fetch region.");
 
         let raw_header_zscore=zscores.header()
@@ -154,8 +166,8 @@ fn fetch_zscores(contig:u64, start:u64, end:u64, ccre_id:&str, zscore_files:&mut
 }
 
 
-fn annot_var(variant_record: &mut rust_htslib::bcf::record::Record, mut ccres_bed:&mut tbx_Reader, mut ccre_to_gene: &mut Vec<tbx_Reader>, mut zscores: &mut Vec<(String,tbx_Reader,f32)>, gene_annot_files: &mut Vec<csv_Reader<File>>) {
-    let contig:u64 = variant_record.rid().unwrap() as u64;
+fn annot_var(out_header:&HeaderView, variant_record: &mut rust_htslib::bcf::record::Record, mut ccres_bed:&mut tbx_Reader, mut ccre_to_gene: &mut Vec<tbx_Reader>, mut zscores: &mut Vec<(String,tbx_Reader,f32)>, gene_annot_files: &mut Vec<csv_Reader<File>>) {
+    let contig:&str = std::str::from_utf8(out_header.rid2name(variant_record.rid().unwrap()).unwrap()).unwrap();
     let start:u64 = variant_record.pos() as u64;
     let end:u64 = variant_record.end() as u64;
 
@@ -259,7 +271,7 @@ fn main() {
     for rec in invcf.records(){
         let mut record=rec.expect("Could not parse record");
         outvcf.translate(&mut record);
-        annot_var(&mut record, &mut ccres_bed, &mut ccre_to_gene_files, &mut biodata_files, &mut gene_annot_files);
+        annot_var(&outvcf.header(), &mut record, &mut ccres_bed, &mut ccre_to_gene_files, &mut biodata_files, &mut gene_annot_files);
         outvcf.write(&record).expect("Unable to write record");
     }
 }
