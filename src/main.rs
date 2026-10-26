@@ -1,6 +1,6 @@
 use rust_htslib::bcf::{Reader as bcf_Reader, Read as bcf_Read, Writer as bcf_Writer, header::HeaderView};
 use rust_htslib::tbx::{Reader as tbx_Reader, Read as tbx_Read};
-use csv::{Reader as csv_Reader, Position};
+use csv::{Reader as csv_Reader, Position, StringRecord};
 use std::collections::HashSet;
 use clap::Parser;
 use std::path::PathBuf;
@@ -166,7 +166,6 @@ fn fetch_zscores(contig:&str, start:u64, end:u64, ccre_id:&str, zscore_files:&mu
     cell_types
 }
 
-
 fn annot_var(out_header:&HeaderView, variant_record: &mut rust_htslib::bcf::record::Record, mut ccres_bed:&mut tbx_Reader, mut ccre_to_gene: &mut Vec<tbx_Reader>, mut zscores: &mut Vec<(String,tbx_Reader,f32)>, gene_annot_files: &mut Vec<csv_Reader<File>>) {
     let contig:&str = std::str::from_utf8(out_header.rid2name(variant_record.rid().unwrap()).unwrap()).unwrap();
     let start:u64 = variant_record.pos() as u64;
@@ -202,13 +201,13 @@ fn annot_var(out_header:&HeaderView, variant_record: &mut rust_htslib::bcf::reco
         all_genes.iter().map(|g| g.split("|").next().unwrap().to_owned())
     );
     // println!("{:?}", unique_genes);
-    for gene_annot_file in gene_annot_files{
-        let mut gene_extra_annot:String=String::new();
-        for gene_rec in &unique_genes{
-            gene_extra_annot=gene_extra_annot+&gene_annot(gene_rec, gene_annot_file).join(":")+"|";
+    for gene_rec in &unique_genes{
+        let mut tmp_annot:Vec<String>=Vec::new();
+        for gene_annot_file in &mut *gene_annot_files{
+            tmp_annot.push(gene_rec.to_owned()+"|"+&gene_annot(gene_rec, gene_annot_file).join("|"));
             //println!("{:?}", annots);
         }
-        extra_annots.push(gene_extra_annot.into_bytes())
+        extra_annots.push(tmp_annot.join(":").into_bytes())
     }
     let unique_ccre_ids:&Vec<String>=&ccre_details.iter().map(|r| r[1].clone()).collect();
     let unique_ccre_ids:HashSet<&String>=HashSet::from_iter(unique_ccre_ids.iter());
@@ -232,6 +231,10 @@ fn annot_var(out_header:&HeaderView, variant_record: &mut rust_htslib::bcf::reco
     variant_record.push_info_string(b"GeneAnnots",&extra_annots).expect("Failed to add annot to variant");
 }
 
+fn build_header_gene_annot(csv_header: &StringRecord)-> String {
+    let header= csv_header.iter().skip(1).collect::<Vec<&str>>();
+    header.join("|")
+}
 
 fn main() {
     let args=Cli::parse();
@@ -258,15 +261,20 @@ fn main() {
         None => Vec::new()
     };
         
-
+    
     let mut out_header=rust_htslib::bcf::Header::from_template(invcf.header());
-    out_header.push_record(b"##INFO=<ID=ScreenElements, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
-    out_header.push_record(b"##INFO=<ID=ScreenGenes, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
-    out_header.push_record(b"##INFO=<ID=ScreenBiodata, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
-    out_header.push_record(b"##INFO=<ID=GeneAnnots, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
+    let mut desc_gene_annot_files:Vec<String>=Vec::new();
+    for r in &mut gene_annot_files{
+        desc_gene_annot_files.push("gene_name|".to_owned()+&build_header_gene_annot(r.headers().expect("Cannot find header")));
+    }
+
+    out_header.push_record(b"##INFO=<ID=ScreenElements, Type=String, Number=., Description=\"Regulatory elements from Screen 'rDHS|cCRE type'\">");
+    out_header.push_record(b"##INFO=<ID=ScreenGenes, Type=String, Number=., Description=\"Link to gene 'rDHS|gene name|assay_type|biosample|P'\">");
+    out_header.push_record(b"##INFO=<ID=ScreenBiodata, Type=String, Number=., Description=\"Biosample passing threshold for biodata given as input (e.g DNase or CHIP results from screen) '\">");
+    out_header.push_record(&format!("##INFO=<ID=GeneAnnots, Type=String, Number=., Description=\"Gene annotations '{}'\">",desc_gene_annot_files.join(":")).into_bytes());
  
     let mut outvcf=bcf_Writer::from_path(args.outfile, &out_header, false,rust_htslib::bcf::Format::Vcf ).expect("Could not open file.");
-
+    
 
     
     for rec in invcf.records(){
