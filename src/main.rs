@@ -62,8 +62,8 @@ fn gene_annot(gene_name: &str, gene_annot: &mut csv_Reader<File>) -> Vec<String>
             //println!("{:?}",record[0].trim().to_uppercase());
             return record[1..record.len()].iter().map(|e| e.to_string()).collect::<Vec<String>>()
         }
-        let _ =gene_annot.seek(start).expect("Cannot access csv record");
     }
+    let _ =gene_annot.seek(start).expect("Cannot access csv record");
     vec![String::new()]
 }
 
@@ -201,9 +201,9 @@ fn annot_var(out_header:&HeaderView, variant_record: &mut rust_htslib::bcf::reco
         all_genes.iter().map(|g| g.split("|").next().unwrap().to_owned())
     );
     // println!("{:?}", unique_genes);
-    for gene_rec in &unique_genes{
+    for gene_annot_file in &mut *gene_annot_files{
         let mut tmp_annot:Vec<String>=Vec::new();
-        for gene_annot_file in &mut *gene_annot_files{
+        for gene_rec in &unique_genes{
             tmp_annot.push(gene_rec.to_owned()+"|"+&gene_annot(gene_rec, gene_annot_file).join("|"));
             //println!("{:?}", annots);
         }
