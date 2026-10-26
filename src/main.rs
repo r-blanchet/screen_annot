@@ -62,8 +62,8 @@ fn gene_annot(gene_name: &str, gene_annot: &mut csv_Reader<File>) -> Vec<String>
             //println!("{:?}",record[0].trim().to_uppercase());
             return record[1..record.len()].iter().map(|e| e.to_string()).collect::<Vec<String>>()
         }
+        let _ =gene_annot.seek(start).expect("Cannot access csv record");
     }
-    let _ =gene_annot.seek(start).expect("Cannot access csv record");
     vec![String::new()]
 }
 
