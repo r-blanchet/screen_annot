@@ -71,10 +71,11 @@ fn fetch_ccres(contig: &str, start: &u64, end: &u64, ccres_bed:&mut tbx_Reader )
     // Retrieves ccreID of elements overlapping variant in ccres_bed if any
     let contig=match ccres_bed.tid(contig) {
         Ok(contig) => contig,
-        Err(_) => {println!("[warning] Could not resolve {} to contig ID in ccre file",contig); continue},
+        Err(_) => {println!("[warning] Could not resolve {} to contig ID in ccre file",contig); return Vec::new()},
     };
     ccres_bed.fetch(contig,*start,*end).expect("Could not fecth region");
     let mut ccre_list:Vec<[String;3]>= Vec::new();
+
     for rec in ccres_bed.records(){
         let record= rec.expect("could not parse record");
         let ccre_name:String=std::str::from_utf8(&record)
