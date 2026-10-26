@@ -1,6 +1,6 @@
 use rust_htslib::bcf::{Reader as bcf_Reader, Read as bcf_Read, Writer as bcf_Writer};
 use rust_htslib::tbx::{Reader as tbx_Reader, Read as tbx_Read};
-use csv::{Reader as csv_Reader};
+use csv::{Reader as csv_Reader, Position};
 use std::collections::HashSet;
 use clap::Parser;
 use std::path::PathBuf;
@@ -22,7 +22,7 @@ struct Cli {
     #[arg(short = 'b', long = "biodata",value_delimiter = ',', num_args = 1.., value_parser = parse_key_val::<String, PathBuf,f32>)]
     biodata: Option<Vec<(String,PathBuf,f32)>>,
     /// Output vcf
-    #[arg(short = 'b', long = "biodata",default_value= "screen_annotated.vcf.gz")]
+    #[arg(short = 'o', long = "outfile",default_value= "screen_annotated.vcf.gz")]
     outfile: PathBuf,
     /// gene annotation files in tsv format (First column should hold the gene name information)
     #[arg(short = 'a', long = "gene_annot",value_delimiter = ',', num_args = 1..)]
@@ -45,17 +45,25 @@ fn parse_key_val<T, U, O>(s: &str) -> Result<(T, U, O), Box<dyn Error + Send + S
             _ => panic!("Cannot parse biodata argument")
         };
         result
-    }
+}
 
 
 fn gene_annot(gene_name: &str, gene_annot: &mut csv_Reader<File>) -> Vec<String>{
+    let mut start = Position::new();
+    let mut i:u32 =0;
     for rec in gene_annot.records(){
         let record_raw=rec.expect("Could not parse record");
+        if i==0{
+            i=1;
+            start=record_raw.position().unwrap().clone();
+        }
         let record:Vec<&str>=record_raw.iter().collect();
         if record[0].trim().to_uppercase()==gene_name.trim().to_uppercase(){
+            //println!("{:?}",record[0].trim().to_uppercase());
             return record[1..record.len()].iter().map(|e| e.to_string()).collect::<Vec<String>>()
         }
     }
+    let _ =gene_annot.seek(start).expect("Cannot access csv record");
     vec![String::new()]
 }
 
@@ -91,7 +99,7 @@ fn fetch_ccres(contig: &u64, start: &u64, end: &u64, ccres_bed:&mut tbx_Reader )
 
 }
 
-fn fetch_genes(contig:u64, start:u64, end:u64, ccre_name: &str, ccre_to_gene_files: &mut Vec<tbx_Reader>, gene_annot_files: &mut Vec<csv_Reader<File>>)-> Vec<String>{
+fn fetch_genes(contig:u64, start:u64, end:u64, ccre_name: &str, ccre_to_gene_files: &mut Vec<tbx_Reader> )-> Vec<String>{
     // Get the genes linked to the ccre
     let mut gene_list:Vec<String>=Vec::new();
     for ccre_to_gene in ccre_to_gene_files {
@@ -105,11 +113,7 @@ fn fetch_genes(contig:u64, start:u64, end:u64, ccre_name: &str, ccre_to_gene_fil
                 .collect::<Vec<&str>>();
             if &record[3]==&ccre_name{    
                 let gene_rec=&record[5].trim().to_string();
-                let mut annots:String=String::new();
-                for gene_annot_file in &mut *gene_annot_files{
-                    annots=annots+&gene_annot(gene_rec, gene_annot_file).join(":")+"|";
-                }
-                let gene_rec=gene_rec.to_owned()+"|"+&record[&record.len()-5]+"|"+&record[&record.len()-3].replace(",","_")+"|"+&record[&record.len()-1]+"|"+&annots;
+                let gene_rec=gene_rec.to_owned()+"|"+&record[&record.len()-5]+"|"+&record[&record.len()-3].replace(",","_")+"|"+&record[&record.len()-1];
                 if !(gene_list.contains(&gene_rec)){
                     gene_list.push(gene_rec);
                 }
@@ -157,8 +161,11 @@ fn annot_var(variant_record: &mut rust_htslib::bcf::record::Record, mut ccres_be
 
     let ccre_details=fetch_ccres(&contig,&start,&end,&mut ccres_bed);
     let mut rec_type:Vec<Vec<u8>>= Vec::new();
-    let mut gene_annot:Vec<Vec<u8>>= Vec::new();
+    let mut gene_link_annot:Vec<Vec<u8>>= Vec::new();
     let mut biodata_annot:Vec<Vec<u8>>= Vec::new();
+    let mut extra_annots:Vec<Vec<u8>>= Vec::new();
+
+    
     for ccre_rec in &ccre_details{
         let ccre_annot:Vec<u8>=(ccre_rec[0].clone()+"|"+&ccre_rec[2]).to_string().into_bytes();
         if !(rec_type.contains(&ccre_annot)){
@@ -167,12 +174,28 @@ fn annot_var(variant_record: &mut rust_htslib::bcf::record::Record, mut ccres_be
     }
     let unique_ccre_names:&Vec<String>=&ccre_details.iter().map(|r| r[0].clone()).collect();
     let unique_ccre_names:HashSet<&String>=HashSet::from_iter(unique_ccre_names.iter());
+
+    let mut all_genes:Vec<String>=Vec::new();
     for ccre_name in &unique_ccre_names{
-        let genes=fetch_genes(contig,start,end,ccre_name,&mut ccre_to_gene, gene_annot_files);
-        for gene in genes {
-            let ann_rec=(ccre_name.to_owned().clone()+"|"+&gene).into_bytes();
-            gene_annot.push(ann_rec);
+        let mut genes=fetch_genes(contig,start,end,ccre_name,&mut ccre_to_gene);
+        for gene in &genes {
+            let ann_rec=(ccre_name.to_owned().clone()+"|"+gene).into_bytes();
+            gene_link_annot.push(ann_rec);
         }
+        all_genes.append(&mut genes);
+    }
+    
+    let unique_genes:HashSet<String>=HashSet::from_iter(
+        all_genes.iter().map(|g| g.split("|").next().unwrap().to_owned())
+    );
+    // println!("{:?}", unique_genes);
+    for gene_annot_file in gene_annot_files{
+        let mut gene_extra_annot:String=String::new();
+        for gene_rec in &unique_genes{
+            gene_extra_annot=gene_extra_annot+&gene_annot(gene_rec, gene_annot_file).join(":")+"|";
+            //println!("{:?}", annots);
+        }
+        extra_annots.push(gene_extra_annot.into_bytes())
     }
     let unique_ccre_ids:&Vec<String>=&ccre_details.iter().map(|r| r[1].clone()).collect();
     let unique_ccre_ids:HashSet<&String>=HashSet::from_iter(unique_ccre_ids.iter());
@@ -187,11 +210,13 @@ fn annot_var(variant_record: &mut rust_htslib::bcf::record::Record, mut ccres_be
         }
     } 
     let rec_type:Vec<&[u8]> = rec_type.iter().map(|a| a.as_slice()).collect::<Vec<&[u8]>>();
-    let gene_annot:Vec<&[u8]> = gene_annot.iter().map(|a| a.as_slice()).collect::<Vec<&[u8]>>();
+    let gene_link_annot:Vec<&[u8]> = gene_link_annot.iter().map(|a| a.as_slice()).collect::<Vec<&[u8]>>();
     let biodata_annot:Vec<&[u8]> = biodata_annot.iter().map(|a| a.as_slice()).collect::<Vec<&[u8]>>();
+    let extra_annots:Vec<&[u8]> = extra_annots.iter().map(|a| a.as_slice()).collect::<Vec<&[u8]>>();
     variant_record.push_info_string(b"ScreenElements",&rec_type).expect("Failed to add annot to variant");
-    variant_record.push_info_string(b"ScreenGenes",&gene_annot).expect("Failed to add annot to variant");
+    variant_record.push_info_string(b"ScreenGenes",&gene_link_annot).expect("Failed to add annot to variant");
     variant_record.push_info_string(b"ScreenBiodata",&biodata_annot).expect("Failed to add annot to variant");
+    variant_record.push_info_string(b"GeneAnnots",&extra_annots).expect("Failed to add annot to variant");
 }
 
 
@@ -225,6 +250,8 @@ fn main() {
     out_header.push_record(b"##INFO=<ID=ScreenElements, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
     out_header.push_record(b"##INFO=<ID=ScreenGenes, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
     out_header.push_record(b"##INFO=<ID=ScreenBiodata, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
+    out_header.push_record(b"##INFO=<ID=GeneAnnots, Type=String, Number=., Description=\"Regulatory elements from Screen\">");
+ 
     let mut outvcf=bcf_Writer::from_path(args.outfile, &out_header, false,rust_htslib::bcf::Format::Vcf ).expect("Could not open file.");
 
 
